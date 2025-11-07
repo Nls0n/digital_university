@@ -7,15 +7,14 @@ class Subjects(Base):
     __tablename__ = "subjects"
 
     id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
-    subject_name = Column(String, nullable=False)
+    name = Column(String, nullable=False)
     department = Column(Integer, nullable=False)  # id факультета
     department_dean = Column(Integer, nullable=False)  # id декана факультета
     courses = Column(ARRAY(Integer), nullable=True)  # предполагается что может быть предмет который еще не введен в программу 
     
-    grades = relationship("Grades", back_populates="owner")
 
 class Students(Base):
-    __tablename__ = "users"
+    __tablename__ = "students"
 
     id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
     email = Column(String, unique=True, nullable=False)
@@ -70,13 +69,7 @@ class Professors(Base):
     department = Column(Integer, nullable=False)  # id факультета
 
 
-class Subjects(Base):
-    __tablename__ = "subjects"
 
-    id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
-    name = Column(String, nullable=False)
-    department = Column(Integer, nullable=False)  # id факультета
-    teaching_staff = Column(ARRAY(String))  # пед состав
 
 class Schedules(Base):
     __tablename__ = "schedules"
