@@ -1,4 +1,4 @@
-from database import Base, engine
+from database import create_tables
 from dotenv import load_dotenv
 import os 
 from models import *
@@ -6,5 +6,5 @@ from models import *
 load_dotenv()
 
 
-Base.metadata.create_all(bind=engine)
+create_tables()
 
