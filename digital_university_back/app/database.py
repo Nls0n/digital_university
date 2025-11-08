@@ -73,7 +73,7 @@ async def init_redis():
             retry_on_timeout=True
         )
         
-        await redis_client.ping()
+        redis_client.ping()
         LOG.info("Redis connection established")
         return redis_client
     except Exception as e:
@@ -84,5 +84,5 @@ async def init_redis():
 async def close_redis():
     global redis_client
     if redis_client:
-        await redis_client.close()
+        redis_client.close()
         LOG.info("Redis connection closed")

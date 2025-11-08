@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, ARRAY, Float
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from database import Base
+from .database import Base
 
 class Subjects(Base):
     __tablename__ = "subjects"
@@ -111,5 +111,17 @@ class Departments(Base):  # факультеты
 
     id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
     name = Column(String, nullable=False)
-    code = Column(String, nullable=False)  # код направления, например 09.03.02 и тд
+    code = Column(String, nullable=False, primary_key=True, unique=True)  # код направления, например 09.03.02 и тд
     dean = Column(Integer, nullable=False)  # id декана факультета
+
+class Groups(Base):
+    __tablename__ = "groups"
+
+    id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
+    name = Column(String, nullable=False)
+    code = Column(String, nullable=False,)  # код направления, например 09.03.02 и тд
+    tutor = Column(Integer)  # id старшего куратора группы
+    young_tutor = Column(Integer)  # id младшего кураторы группы
+    students = Column(ARRAY(Integer))  # массив id студентов
+    elder = Column(Integer)  # id старосты группы  
+    

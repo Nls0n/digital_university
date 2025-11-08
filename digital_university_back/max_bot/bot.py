@@ -10,7 +10,6 @@ LOG = structlog.getLogger()
 
 bot = Bot(os.getenv("MAX_TOKEN")) # инстанс бота
 dp = Dispatcher() # диспетчер
-
 @dp.bot_started() # действие при запуске
 async def start_bot(event: BotStarted): # в ивенты передаем тип события
     await event.bot.send_message(
@@ -24,3 +23,6 @@ async def greet(event: MessageCreated):
 # запуск бота
 async def main():
     await dp.start_polling(bot)
+
+
+asyncio.run(main())
