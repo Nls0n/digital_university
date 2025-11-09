@@ -1,20 +1,23 @@
 from fastapi import FastAPI, HTTPException, status, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List
-from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select, update, delete
+from typing import Dict, Any
+import redis.asyncio as redis
+import json
 import structlog
-from sqlalchemy import select, update, insert, values
-from sqlalchemy.orm import Session
+from datetime import datetime
+
 from .database import get_db, get_redis, init_redis, close_redis, close_engine, create_tables
 from .models import *
-import redis.asyncio as redis
+from .utils import get_cached_schedule, set_cached_schedule, invalidate_schedule_cache
+from . import schemas
 
 LOG = structlog.get_logger()
-PATH = "/digital_university"
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):  # lifespan для дополнительного слоя логики при включении и отключении приложения, найстройка интеграций
+async def lifespan(app: FastAPI):
     LOG.info("Запуск приложения, создание таблиц в бд")
     try:
         await create_tables()
@@ -48,69 +51,196 @@ async def lifespan(app: FastAPI):  # lifespan для дополнительно�
 
     LOG.info("Приложение остановлено")
 
-app = FastAPI(lifespan=lifespan)  # бинд lifespan
+app = FastAPI(lifespan=lifespan)
+
 origins = [
-    "http://localhost:3000",  # адрес React/Vue dev-сервера
+    "http://localhost:3000", # dev react/vue server
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,    # список разрешённых источников
+    allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],      # разрешить все методы 
-    allow_headers=["*"],      # разрешить все заголовки
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
+
+
 @app.get('/cache/{key}')
 async def get_cached_value(key: str, redis_client: redis.Redis = Depends(get_redis), status_code=status.HTTP_200_OK):
     """Ручка для получения кэшированных значений из Redis"""
     if not redis_client:
         LOG.error("Не удалось получить значение из кэша. Redis недоступен")
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Redis unvailable")
-    value = await redis_client.get(key)
+    value = redis_client.get(key)
     if value is None:
         LOG.error("Не удалось получить значение из кэша. Несуществующий ключ")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Value not found in cache")
     return {"status": "accessed", "key": key, "value": value}
 
 @app.post("/cache/{key}", status_code=status.HTTP_201_CREATED)
-async def set_cache_value(key: str, value: str, expire: int = 3600, redis_client: redis.Redis = Depends(get_redis)):
+async def set_cache_value(key: str, body: schemas.CacheRequest, redis_client: redis.Redis = Depends(get_redis)):
     """Ручка для установки значения в Redis"""
     if not redis_client:
-        LOG.error("Не удалось получить значение из кэша. Redis недоступен")
+        LOG.error("Не удалось записать значение в кэш. Redis недоступен")
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Redis unvailable")
-    await redis_client.set(key=key, value=value, ex=expire)
-    return {"status": "added", "key": key, "expire": expire}
+    redis_client.set(name=key, value=body.value, ex=body.expire)
+    return {"status": "added", "key": key, "expire": body.expire}
 
 @app.delete("/cache/{key}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_cache_value(key: str, redis_client: redis.Redis = Depends(get_redis)):
     if not redis_client:
-        LOG.error("Не удалось получить значение из кэша. Redis недоступен")
+        LOG.error("Не удалось удалить значение из кэша. Redis недоступен")
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Redis unvailable")
-    res = await redis_client.delete(key)
+    res = redis_client.delete(key)
     return {"status": "deleted", "key": key, "affected": res}
 
-        
 @app.post("/digital_university/api/v1/auth")
 async def auth():
     """auth logic"""
     pass
 
+@app.get("/digital_university/api/v1/schedule/group/{group_name}", status_code=status.HTTP_200_OK)
+async def get_schedule(
+    group_name: str, 
+    db: AsyncSession = Depends(get_db),
+    redis_client: redis.Redis = Depends(get_redis)
+):
+    """Получить расписание по группе"""
+    if redis_client:
+        cached_schedule = await get_cached_schedule(group_name, redis_client)
+        if cached_schedule:
+            return cached_schedule
+    
+    result = await db.execute(
+        select(Schedules).where(Schedules.group == group_name)
+    )
+    schedule = result.scalar_one_or_none()
+    
+    if not schedule:
+        LOG.error(f"Schedule for group {group_name} not found")
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    
+    schedule_data = {
+        "id": schedule.id,
+        "group": schedule.group,
+        "schedule_data": schedule.schedule_data
+    }
+    
+    if redis_client:
+        await set_cached_schedule(group_name, schedule_data, redis_client)
+    
+    return schedule_data
+
+@app.post("/digital_university/api/v1/schedule/", status_code=status.HTTP_201_CREATED)
+async def create_schedule(
+    req: schemas.ScheduleRequest,
+    db: AsyncSession = Depends(get_db),
+    redis_client: redis.Redis = Depends(get_redis)
+):
+    """Добавить расписание по группе"""
+    result = await db.execute(
+        select(Schedules).where(Schedules.group == req.group)
+    )
+    existing_schedule = result.scalar_one_or_none()
+    
+    if existing_schedule:
+        LOG.error(f"Schedule for group {req.group} already exists")
+        raise HTTPException(status_code=400, detail="Schedule for this group already exists")
+    
+    def json_serializer(obj):
+        """Кастомный сериализатор для datetime"""
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
+
+    # В ручке:
+    db_schedule = Schedules(
+        group=req.group, 
+        schedule_data=json.loads(json.dumps(
+            req.schedule.model_dump(), 
+            default=json_serializer
+        ))
+    )
+    db.add(db_schedule)
+    await db.commit()
+    await db.refresh(db_schedule)
+    
+    if redis_client:
+        await invalidate_schedule_cache(req.group, redis_client)
+    
+    LOG.info(f"Schedule created for group {req.group}")
+    return {"status": "created", "schedule_id": db_schedule.id}
+
+@app.put("/digital_university/api/v1/schedule/group/{group_name}", status_code=status.HTTP_200_OK)
+async def update_schedule(
+    group_name: str, 
+    schedule_data: Dict[str, Any],
+    db: AsyncSession = Depends(get_db),
+    redis_client: redis.Redis = Depends(get_redis)
+):
+    """Изменить расписание по группе"""
+    result = await db.execute(
+        select(Schedules).where(Schedules.group == group_name)
+    )
+    db_schedule = result.scalar_one_or_none()
+    
+    if not db_schedule:
+        LOG.error(f"Schedule for group {group_name} not found")
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    
+    db_schedule.schedule_data = schedule_data
+    await db.commit()
+    await db.refresh(db_schedule)
+    
+    if redis_client:
+        await invalidate_schedule_cache(group_name, redis_client)
+    
+    LOG.info(f"Schedule updated for group {group_name}")
+    return {"status": "updated", "schedule_id": db_schedule.id}
+
+@app.delete("/digital_university/api/v1/schedule/group/{group_name}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_schedule(
+    group_name: str, 
+    db: AsyncSession = Depends(get_db),
+    redis_client: redis.Redis = Depends(get_redis)
+):
+    """Удалить расписание по группе"""
+    result = await db.execute(
+        select(Schedules).where(Schedules.group == group_name)
+    )
+    db_schedule = result.scalar_one_or_none()
+    
+    if not db_schedule:
+        LOG.error(f"Schedule for group {group_name} not found")
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    
+    await db.delete(db_schedule)
+    await db.commit()
+    
+    if redis_client:
+        await invalidate_schedule_cache(group_name, redis_client)
+    
+    LOG.info(f"Schedule deleted for group {group_name}")
+
 
 @app.get("/digital_university/api/v1/group/{group_id}/students", status_code=status.HTTP_200_OK)
 async def get_students_by_group(group_id: int, db: AsyncSession = Depends(get_db)):
+    """Получить расписание по группе"""
     students = await db.execute(select(Groups.students).where(Groups.id == group_id))
     students = students.scalar_one_or_none()
     if not students:
         raise HTTPException(404, "group_not_found")
     return students
-    
-
 
 @app.get("/digital_university/api/v1/professor/{professor_id}/students", status_code=status.HTTP_200_OK)
 async def get_students_by_teacher(professor_id: int, db: AsyncSession = Depends(get_db)):
+    """Получить список студентов по преподавателю"""
     groups = await db.execute(select(Professors.groups).where(Professors.id == professor_id))
     students_list = []
-
+    groups = groups.scalar_one_or_none()
+    if not groups:
+        raise HTTPException(404, "professor not found")
     for group_id in groups:
         students = await db.execute(select(Groups.students).where(Groups.id == group_id))
         students = list(students)
@@ -120,49 +250,274 @@ async def get_students_by_teacher(professor_id: int, db: AsyncSession = Depends(
 
 @app.patch("/digital_university/api/v1/add/student/{student_id}/group/{group_id}", status_code=status.HTTP_200_OK)
 async def add_student_to_group(student_id: int, group_id: int, db: AsyncSession = Depends(get_db)):
+    """Добавить студента в группу"""
     students_list = await db.execute(select(Groups.students).where(Groups.id == group_id))
-    students_list = list(students_list)
+    students_list = students_list.scalar_one_or_none()
+    if not students_list:
+        raise HTTPException(404, "group not found")
+    is_valid_student = await db.execute(select(Students).where(Students.id == student_id))
+    is_valid_student = is_valid_student.scalar_one_or_none()
+    if not is_valid_student:
+        raise HTTPException(404, "student not found")
     students_list.append(student_id)
     await db.execute(
-        update(Groups.students)
-        .where(Groups.id == group_id)
-        .values(students_list)
+        update(Groups).where(Groups.id == group_id).values(students=students_list)
     )
-
     await db.commit()
 
 @app.delete("/digital_university/api/v1/move/student/{student_id}/group/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_student_from_group(student_id: int, group_id: int, db: AsyncSession = Depends(get_db)):
+    """Удалить студента из группы"""
     students_list = await db.execute(select(Groups.students).where(Groups.id == group_id))
-    students_list = list(students_list)
+    students_list = students_list.scalar_one_or_none()
+    if not students_list:
+        raise HTTPException(404, "student not found")
     students_list.remove(student_id)
     await db.execute(
-        update(Groups.students)
-        .where(Groups.id == group_id)
-        .values(students_list)
+        update(Groups).where(Groups.id == group_id).values(students=students_list)
     )
-
     await db.commit()
 
-@app.get('/digital_university/api/v1/student/{student_id}/shedule', status_code=status.HTTP_200_OK)
-async def get_achievements(student_id: int, db: AsyncSession = Depends(get_db)):
-    achievements = await db.execute(
-        select(Students.achievments)
-        .where(Students.id == student_id)
-    )
 
+@app.get("/digital_university/api/v1/student/{student_id}/grades", status_code=status.HTTP_200_OK)
+async def get_student_grades(
+    student_id: int, 
+    db: AsyncSession = Depends(get_db)
+):
+    """Получить все оценки по student_id"""
+    student_result = await db.execute(select(Students).where(Students.id == student_id))
+    student = student_result.scalar_one_or_none()
+    
+    if not student:
+        LOG.error(f"Student with id {student_id} not found")
+        raise HTTPException(status_code=404, detail="Student not found")
+    
+    grades_result = await db.execute(select(Grades).where(Grades.student_id == student_id))
+    grades = grades_result.scalars().all()
+    
+    return grades
+
+@app.get("/digital_university/api/v1/student/{student_id}/grades/subject/{subject_id}")
+async def get_student_grades_for_subject(student_id: int, subject_id: int, db: AsyncSession = Depends(get_db)):
+    """Получить оценки студента по предмету"""
+    grades = await db.execute(
+        select(Grades.grades).where(Grades.student_id == student_id)
+    )
+    grades = grades.scalar_one_or_none()
+    if not grades:
+        raise HTTPException(404, "student not found")
+    
+    subject_name = await db.execute(select(Subjects.name).where(Subjects.id == subject_id))
+    subject_name = subject_name.scalar_one_or_none()
+    if not subject_name:
+        raise HTTPException(404, "subject not found")
+    
+    subject_grades = grades.get(subject_name, [])
+    return subject_grades
+
+@app.patch("/digital_university/api/v1/grades/{grade_id}", status_code=status.HTTP_200_OK)
+async def update_grade(
+    grade_id: int, 
+    grades_update: Dict[str, Any],
+    db: AsyncSession = Depends(get_db)
+):
+    """Изменение отдельной оценки по grade_id"""
+    result = await db.execute(select(Grades).where(Grades.id == grade_id))
+    db_grade = result.scalar_one_or_none()
+    
+    if not db_grade:
+        LOG.error(f"Grade with id {grade_id} not found")
+        raise HTTPException(status_code=404, detail="Grade not found")
+    
+    for key, value in grades_update.items():
+        if hasattr(db_grade, key):
+            setattr(db_grade, key, value)
+    
+    await db.commit()
+    await db.refresh(db_grade)
+    
+    LOG.info(f"Grade {grade_id} updated successfully")
+    return {"status": "updated", "grade_id": grade_id}
+
+
+@app.post("/digital_university/api/v1/group/{group_id}/tasks", status_code=status.HTTP_201_CREATED)
+async def create_tasks_for_group(
+    group_id: int,
+    description: str,
+    max_points: int,
+    professor_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """Добавление задания для всех учеников в группе"""
+    group_result = await db.execute(select(Groups).where(Groups.id == group_id))
+    group = group_result.scalar_one_or_none()
+    
+    if not group:
+        LOG.error(f"Group with id {group_id} not found")
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    professor_result = await db.execute(select(Professors).where(Professors.id == professor_id))
+    professor = professor_result.scalar_one_or_none()
+    
+    if not professor:
+        LOG.error(f"Professor with id {professor_id} not found")
+        raise HTTPException(status_code=404, detail="Professor not found")
+    
+    created_tasks = []
+    for student_id in group.students:
+        task = Tasks(
+            description=description,
+            max_points=max_points,
+            student_points=0,
+            student_id=student_id,
+            professor_id=professor_id
+        )
+        db.add(task)
+        created_tasks.append({"student_id": student_id, "task_id": task.id})
+    
+    await db.commit()
+    
+    LOG.info(f"Created {len(created_tasks)} tasks for group {group_id}")
+    return {
+        "status": "created", 
+        "tasks_count": len(created_tasks),
+        "tasks": created_tasks
+    }
+
+@app.patch("/digital_university/api/v1/tasks/{task_id}/grade", status_code=status.HTTP_200_OK)
+async def grade_task(
+    task_id: int,
+    student_points: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """Выставление оценки за работу по task_id"""
+    result = await db.execute(select(Tasks).where(Tasks.id == task_id))
+    db_task = result.scalar_one_or_none()
+    
+    if not db_task:
+        LOG.error(f"Task with id {task_id} not found")
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    if student_points > db_task.max_points:
+        LOG.error(f"Student points {student_points} exceed max points {db_task.max_points}")
+        raise HTTPException(status_code=400, detail="Student points cannot exceed max points")
+    
+    db_task.student_points = student_points
+    await db.commit()
+    await db.refresh(db_task)
+    
+    LOG.info(f"Task {task_id} graded with {student_points} points")
+    return {"status": "graded", "task_id": task_id, "points": student_points}
+
+@app.get("/digital_university/api/v1/professor/{professor_id}/tasks", status_code=status.HTTP_200_OK)
+async def get_professor_tasks(professor_id: int, db: AsyncSession = Depends(get_db)):
+    """Получение всех заданий по professors.id"""
+    result = await db.execute(select(Tasks).where(Tasks.professor_id == professor_id))
+    tasks = result.scalars().all()
+    return tasks
+
+@app.get("/digital_university/api/v1/student/{student_id}/tasks", status_code=status.HTTP_200_OK)
+async def get_student_tasks(student_id: int, db: AsyncSession = Depends(get_db)):
+    """Получение всех заданий по students.id"""
+    student_result = await db.execute(select(Students).where(Students.id == student_id))
+    student = student_result.scalar_one_or_none()
+    
+    if not student:
+        LOG.error(f"Student with id {student_id} not found")
+        raise HTTPException(status_code=404, detail="Student not found")
+    
+    result = await db.execute(select(Tasks).where(Tasks.student_id == student_id))
+    tasks = result.scalars().all()
+    return tasks
+
+
+@app.get('/digital_university/api/v1/student/{student_id}/achievments', status_code=status.HTTP_200_OK)
+async def get_achievements(student_id: int, db: AsyncSession = Depends(get_db)):
+    """Получение достижений студента по students.id"""
+    achievements = await db.execute(select(Students.achievments).where(Students.id == student_id))
+    achievements = achievements.scalar_one_or_none()
+    if not achievements:
+        raise HTTPException(404, "student not found")
     return achievements
 
 @app.get("/digital_university/api/v1/student/{student_id}/average_grade/")
 async def get_average_grade(student_id: int, db: AsyncSession = Depends(get_db)):
+    """Получение общего среднего балла по students.id"""
     avg = await db.execute(select(Students.average_grade).where(Students.id == student_id))
-
+    avg = avg.scalar_one_or_none()
+    if not avg:
+        raise HTTPException(404, "student not found")
     return avg
 
-@app.get("/digital_university/api/v1/student/{student_id}")
+@app.get("/digital_university/api/v1/student/{student_id}", response_model=schemas.StudentResponse)
 async def get_student_by_id(student_id: int, db: AsyncSession = Depends(get_db)):
+    """Получение данных о студенте по id"""
     student = await db.execute(select(Students).where(Students.id == student_id))
     student = student.scalar_one_or_none()
     if not student:
         raise HTTPException(404, "student not found")
     return student
+
+@app.get("/digital_university/api/v1/societes/student/{student_id}", response_model=schemas.SocietesResponse)
+async def get_student_societies(student_id: int, db: AsyncSession = Depends(get_db)):
+    """Получить список сообществ в которых состоит студент"""
+    societies = await db.execute(select(Students.societes).where(Students.id == student_id))
+    societies = societies.scalar_one_or_none()
+    if not societies:
+        raise HTTPException(404, "student not found")
+    return societies
+
+@app.post("/digital_university/api/v1/societes/add")
+async def add_student_to_society(name: str, last_name: str):
+    """Логика авторизации (maybe some day...)"""
+    pass
+
+@app.get("/digital_university/api/v1/student/{student_id}/subject/{subject_id}/average", status_code=status.HTTP_200_OK)
+async def get_student_subject_average(
+    student_id: int, 
+    subject_id: int, 
+    db: AsyncSession = Depends(get_db)
+):
+    """Получение среднего балла по предмету по students.id и subjects.id"""
+    student_result = await db.execute(select(Students).where(Students.id == student_id))
+    student = student_result.scalar_one_or_none()
+    
+    if not student:
+        LOG.error(f"Student with id {student_id} not found")
+        raise HTTPException(status_code=404, detail="Student not found")
+    
+    subject_result = await db.execute(select(Subjects).where(Subjects.id == subject_id))
+    subject = subject_result.scalar_one_or_none()
+    
+    if not subject:
+        LOG.error(f"Subject with id {subject_id} not found")
+        raise HTTPException(status_code=404, detail="Subject not found")
+    
+    grades_result = await db.execute(select(Grades).where(Grades.student_id == student_id))
+    grades_records = grades_result.scalars().all()
+    
+    subject_grades = []
+    subject_name = subject.name
+    
+    for grade_record in grades_records:
+        if grade_record.grades and subject_name in grade_record.grades:
+            subject_grades.append(grade_record.grades[subject_name])
+    
+    if not subject_grades:
+        return {
+            "student_id": student_id, 
+            "subject_id": subject_id, 
+            "average_grade": 0, 
+            "message": "No grades found for this subject"
+        }
+    
+    average_grade = sum(subject_grades) / len(subject_grades)
+    
+    LOG.info(f"Calculated average grade {average_grade:.2f} for student {student_id} in subject {subject_id}")
+    return {
+        "student_id": student_id,
+        "subject_id": subject_id,
+        "subject_name": subject_name,
+        "average_grade": round(average_grade, 2),
+        "grades_count": len(subject_grades)
+    }

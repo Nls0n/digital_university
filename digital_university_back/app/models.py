@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, ARRAY, Float
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, ARRAY, Float, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from .database import Base
@@ -28,11 +28,11 @@ class Students(Base):
     has_scholarship = Column(Boolean, default=True)  # наличие стипендии
     in_dormitory = Column(Boolean, nullable=False)  # живет ли в общежитии
     course = Column(Integer, nullable=False)  # если отчислен - номер последнего пройденного курса
-    group = Column(String, nullable=True) #  если отчислен - название группы в которой числился
+    group = Column(Integer, nullable=True) #  если отчислен - id группы в которой числился
     department = Column(String, nullable=False)  # кафедра
-    achievments_points = Column(Integer, default=0)  # баллы за достижения
+    achievements_points = Column(Integer, default=0)  # баллы за достижения
     average_grade = Column(Integer, default=None)
-    societes = Column(ARRAY(String), nullable=True, default=None)  # в каких студенческих обществах состоит
+    societes = Column(ARRAY(Integer),nullable=True, default=None)  # в каких студенческих обществах состоит (массив id)
     joined_at = Column(DateTime, default=func.now())  # дата поступления в УНИВЕРСИТЕТ!!
     skips_count = Column(Integer, nullable=False, default=0)  # количество пропусков
     visits_percent = Column(Float, nullable=False, default=100)  # процент посещаемости
@@ -40,16 +40,15 @@ class Students(Base):
     academic_vacation = Column(Boolean, default=False)  # в академе?
     academic_vacation_start = Column(DateTime, nullable=True, default=None)
     academic_vacation_end = Column(DateTime, nullable=True, default=None)
+    role = Column(String, nullable=False)
 class Grades(Base):
     __tablename__ = "grades"
 
     id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
     student_id = Column(Integer, ForeignKey("students.id"))
-    group = Column(String, nullable=False) 
+    group = Column(Integer, nullable=False) 
     course = Column(Integer, nullable=False)
-    subject_name = Column(String, nullable=False)
-    subject_id = Column(Integer, ForeignKey("subjects.id"))
-    grade = Column(Integer)
+    grades = Column(JSON)
     description = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -67,36 +66,16 @@ class Professors(Base):
     post = Column(String, nullable=False)  # должность 
     joined_at = Column(DateTime, nullable=False)
     department = Column(Integer, nullable=False)  # id факультета
-
+    role = Column(String, nullable=False)
 
 
 
 class Schedules(Base):
     __tablename__ = "schedules"
-
-    id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
+    
+    id = Column(Integer, primary_key=True)
     group = Column(String, nullable=True)
-    monday1 = Column(ARRAY(String), default=None)
-    tuesday1 = Column(ARRAY(String), default=None)
-    wednesday1 = Column(ARRAY(String), default=None)
-    thursday1 = Column(ARRAY(String), default=None)
-    friday1 = Column(ARRAY(String), default=None)
-    saturday1 = Column(ARRAY(String), default=None)
-    sunday1 = Column(ARRAY(String), default=None)
-    monday2 = Column(ARRAY(String), default=None)
-    tuesday2 = Column(ARRAY(String), default=None)
-    wednesday2 = Column(ARRAY(String), default=None)
-    thursday2 = Column(ARRAY(String), default=None)
-    friday2 = Column(ARRAY(String), default=None)
-    saturday2 = Column(ARRAY(String), default=None)
-    sunday2 = Column(ARRAY(String), default=None)
-
-class Societies(Base):
-    __tablename__ = "societies"
-
-    id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
-    name = Column(String, nullable=False)
-    people = Column(ARRAY(Integer), default=None)  # массив id людей состоящих в кружках
+    schedule_data = Column(JSON)  
 
 class Projects(Base):
     __tablename__ = "projects"
@@ -125,3 +104,28 @@ class Groups(Base):
     students = Column(ARRAY(Integer))  # массив id студентов
     elder = Column(Integer)  # id старосты группы  
     
+class Societies(Base):
+    __tablename__ = "societes"
+
+    id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
+    name = Column(String, nullable=False)
+    chairman = Column(Integer, ForeignKey("students.id"))  # председатель
+    students = Column(ARRAY(Integer)) 
+
+class Applicants(Base):
+    __tablename__ = "applicants"
+
+    id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
+    name = Column(String, nullable=False)
+    email = Column(String, nullable=False, unique=True)
+    phone_number = Column(String, nullable=False, unique=True)
+
+class Tasks(Base):
+    __tablename__ = "tasks"
+
+    id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
+    description = Column(String)
+    max_points = Column(Integer)
+    student_points = Column(Integer)
+    student_id = Column(Integer, ForeignKey("students.id"))
+    professor_id = Column(Integer, ForeignKey("professors.id"))
