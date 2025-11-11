@@ -19,7 +19,7 @@ REDIS_DB = int(os.getenv("REDIS_DB", 0))
 DB_HOST = os.getenv("DB_HOST")
 DB_PORT = os.getenv("DB_PORT")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
-DB_USER = os.getenv("DB_PASSWORD")
+DB_USER = os.getenv("DB_USER")
 DB_NAME = os.getenv("DB_NAME")
 
 def setup_database():
@@ -35,7 +35,7 @@ def setup_database():
         conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
         cursor = conn.cursor()
         
-        cursor.execute(f"SELECT 1 FROM pg_database WHERE datname = {DB_NAME}")
+        cursor.execute(f"SELECT 1 FROM pg_database WHERE datname = '{DB_NAME}'")
         if not cursor.fetchone():
             cursor.execute(f'CREATE DATABASE "{DB_NAME}"')
             LOG.info(f" База данных {DB_NAME} создана")
