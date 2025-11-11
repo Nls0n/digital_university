@@ -19,7 +19,8 @@ class Students(Base):
     id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
     email = Column(String, unique=True, nullable=False)
     name = Column(String, nullable=False)
-    last_name = Column(String, nullable=False) 
+    last_name = Column(String, nullable=False)
+    patronymic = Column(String, nullable=False)
     birth_date = Column(DateTime, nullable=False)
     hashed_password = Column(String, nullable=False)
     is_listed = Column(Boolean, default=True)  # числится в университете или отчислен 
@@ -67,6 +68,7 @@ class Professors(Base):
     joined_at = Column(DateTime, nullable=False)
     department = Column(Integer, nullable=False)  # id факультета
     role = Column(String, nullable=False)
+    patronymic = Column(String, nullable=False)
 
 
 
@@ -119,6 +121,8 @@ class Applicants(Base):
     name = Column(String, nullable=False)
     email = Column(String, nullable=False, unique=True)
     phone_number = Column(String, nullable=False, unique=True)
+    patronymic = Column(String, nullable=False)
+    insurance_policy = Column(String, nullable=False)  #  СНИЛС
 
 class Tasks(Base):
     __tablename__ = "tasks"
