@@ -1,5 +1,5 @@
 import asyncio
-import logging
+import structlog
 from enum import Enum
 
 from maxapi import Bot, Dispatcher
@@ -7,12 +7,15 @@ from maxapi.filters import F
 from maxapi.types import Command, BotStarted, MessageCreated, MessageCallback
 from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 from maxapi.types import LinkButton, CallbackButton
+from dotenv import load_dotenv
+import os
 
-logging.basicConfig(level=logging.INFO)
+load_dotenv()
 
-bot = Bot('MAX_TOKEN')
+LOG = structlog.get_logger()
+
+bot = Bot(os.getenv('MAX_TOKEN'))
 dp = Dispatcher()
-
 
 class UserRole(Enum):
     STUDENT = "student"

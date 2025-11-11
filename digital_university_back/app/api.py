@@ -13,13 +13,14 @@ from .database import get_db, get_redis, init_redis, close_redis, close_engine, 
 from .models import *
 from .utils import get_cached_schedule, set_cached_schedule, invalidate_schedule_cache
 from . import schemas
-
+from .database import setup_database
 LOG = structlog.get_logger()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     LOG.info("Запуск приложения, создание таблиц в бд")
-    try:
+    try:   
+        setup_database()
         await create_tables()
         LOG.info("Таблицы успешно созданы или существуют")
     except Exception as e:
