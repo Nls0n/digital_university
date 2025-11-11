@@ -9,6 +9,10 @@ from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 from maxapi.types import LinkButton, CallbackButton
 from dotenv import load_dotenv
 import os
+from sqlalchemy import select, update, delete
+from digital_university_back.app.database import engine
+from digital_university_back.app.models import *
+
 
 load_dotenv()
 
@@ -60,6 +64,19 @@ async def bot_started(event: BotStarted):
         chat_id=event.chat_id,
         text='Отправьте команду /start'
     )
+    async with engine.begin() as conn:
+        result = await conn.execute(select(Students.name).where(Students.id == 2))
+        result = result.scalar_one_or_none()
+        if not result:
+            await event.bot.send_message(
+                chat_id=event.chat_id,
+                text="студент не найден"
+            )
+        else:
+            await event.bot.send_message(
+                chat_id=event.chat_id,
+                text = result
+            )
 
 # Стартовый хендлер
 @dp.message_created(Command("/start"))

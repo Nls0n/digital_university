@@ -58,12 +58,6 @@ AsyncSessionLocal = async_sessionmaker(
     expire_on_commit=False
 )
 
-AsyncSessionLocal = async_sessionmaker(
-    engine,
-    class_=AsyncSession,
-    expire_on_commit=False
-)
-
 
 Base = declarative_base()
 redis_client = None
