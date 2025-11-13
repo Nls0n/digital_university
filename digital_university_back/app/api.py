@@ -3,18 +3,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
+from sqlalchemy.exc import NoResultFound
 from typing import Dict, Any
 import redis.asyncio as redis
 import json
 import structlog
 from datetime import datetime
-
+from ..max_bot.bot import bot
 from .database import get_db, get_redis, init_redis, close_redis, close_engine, create_tables
 from .models import *
-from .utils import get_cached_schedule, set_cached_schedule, invalidate_schedule_cache
+from .utils import get_cache_value, set_cache_value, delete_cached_value
 from . import schemas
 from .database import setup_database
 LOG = structlog.get_logger()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -80,7 +82,7 @@ async def get_cached_value(key: str, redis_client: redis.Redis = Depends(get_red
     return {"status": "accessed", "key": key, "value": value}
 
 @app.post("/cache/{key}", status_code=status.HTTP_201_CREATED)
-async def set_cache_value(key: str, body: schemas.CacheRequest, redis_client: redis.Redis = Depends(get_redis)):
+async def set_cached_value(key: str, body: schemas.CacheRequest, redis_client: redis.Redis = Depends(get_redis)):
     """Ручка для установки значения в Redis"""
     if not redis_client:
         LOG.error("Не удалось записать значение в кэш. Redis недоступен")
@@ -96,30 +98,31 @@ async def delete_cache_value(key: str, redis_client: redis.Redis = Depends(get_r
     res = redis_client.delete(key)
     return {"status": "deleted", "key": key, "affected": res}
 
-@app.post("/digital_university/api/v1/auth")
-async def auth():
-    """auth logic"""
-    pass
-
-@app.get("/digital_university/api/v1/schedule/group/{group_name}", status_code=status.HTTP_200_OK)
+@app.get("/digital_university/api/v1/schedule/student/{max_id}",
+        status_code=status.HTTP_200_OK,
+        response_model=schemas.ScheduleReponse)
 async def get_schedule(
-    group_name: str, 
+    max_id: int, 
     db: AsyncSession = Depends(get_db),
     redis_client: redis.Redis = Depends(get_redis)
 ):
-    """Получить расписание по группе"""
+    """Получить расписание по max_id"""
+    url: str = f"/digital_university/api/v1/schedule/student/{max_id}"
+
     if redis_client:
-        cached_schedule = await get_cached_schedule(group_name, redis_client)
+        cached_schedule = get_cache_value(url, redis_client)
         if cached_schedule:
-            return cached_schedule
-    
+            return json.loads(cached_schedule)
     result = await db.execute(
-        select(Schedules).where(Schedules.group == group_name)
+    select(Schedules)
+    .select_from(Students)
+    .join(Schedules, Students.group == Schedules.group)
+    .where(Students.max_id == max_id)
     )
-    schedule = result.scalar_one_or_none()
-    
-    if not schedule:
-        LOG.error(f"Schedule for group {group_name} not found")
+    try:
+        schedule = result.scalars().one()
+    except NoResultFound:
+        LOG.error(f"Schedule for max_id {max_id} not found")
         raise HTTPException(status_code=404, detail="Schedule not found")
     
     schedule_data = {
@@ -129,10 +132,91 @@ async def get_schedule(
     }
     
     if redis_client:
-        await set_cached_schedule(group_name, schedule_data, redis_client)
+        set_cache_value(url, json.dumps(schedule_data), redis_client)
     
     return schedule_data
+@app.get("/digital_university/api/v1/presense/{max_id}", status_code=status.HTTP_200_OK)
+async def check_presense(max_id: int,
+                         db: AsyncSession = Depends(get_db),
+                         redis_client: redis.Redis = Depends(get_redis)):
+    url = f"/digital_university/api/v1/presense/{max_id}"
+    if redis_client:
+        cached_schedule = get_cache_value(url, redis_client)
+        if cached_schedule:
+            return 1 == cached_schedule
+    student_exists = await db.execute(
+        select(Students.max_id).where(Students.max_id == max_id)
+    )
+    if student_exists.scalar_one_or_none():
+        set_cache_value(url, 1, redis_client)
+        return True
+    
+    professor_exists = await db.execute(
+        select(Professors.max_id).where(Professors.max_id == max_id)
+    )
+    if professor_exists.scalar_one_or_none():
+        set_cache_value(url, 1, redis_client)
+        return True
+    
+    applicant_exists = await db.execute(
+        select(Applicants.max_id).where(Applicants.max_id == max_id)
+    )
+    if applicant_exists.scalar_one_or_none():
+        set_cache_value(url, 1, redis_client)
+        return True
+    set_cache_value(url, 0, redis_client)
+    return False
 
+@app.get("/digital_university/api/v1/opendoordays/dates",
+         status_code=status.HTTP_200_OK)
+async def get_door_opened_dates(db: AsyncSession = Depends(get_db), redis_client: redis.Redis = Depends(get_redis)):
+    url = f"/digital_university/api/v1/opendoordays/dates"
+
+    if redis_client:
+        dates = get_cache_value(url, redis_client)
+        if dates:
+            return json.loads(dates)
+    try:    
+        result = await db.execute(select(OpenDoorDays.date))
+        result = result.scalars().all()
+    except NoResultFound:
+        return []
+    if result:
+        set_cache_value(url, json.dumps(result), redis_client)
+
+        return result
+    return []
+
+@app.put("/digital_university/api/v1/opendoordays/{name}/student/{max_id}", status_code=status.HTTP_200_OK)
+async def open_door_day_student_append(name: str, max_id: int, db: AsyncSession = Depends(get_db)):
+    url=f"/digital_university/api/v1/opendoordays/{name}/student/{max_id}"
+    students = await db.execute(select(OpenDoorDays.id).where(OpenDoorDays.name == name))
+    students = students.scalar_one_or_none()
+    if not students:
+        raise HTTPException(404, f"opendoorday with name {name} not found")
+    students = await db.execute(select(OpenDoorDays.students).where(OpenDoorDays.name == name))
+
+    students = students.scalar_one_or_none()
+
+    if not students:
+        students = [max_id]
+        await db.execute(
+        update(OpenDoorDays)
+        .where(OpenDoorDays.name == name)
+        .values(students=students))
+        await db.commit()
+        return {"added": students}
+    
+    students.append(max_id)
+    await db.execute(
+    update(OpenDoorDays)
+    .where(OpenDoorDays.name == name)
+    .values(students=students))
+    await db.commit()
+
+
+    return {"added": students}
+    
 @app.post("/digital_university/api/v1/schedule/", status_code=status.HTTP_201_CREATED)
 async def create_schedule(
     req: schemas.ScheduleRequest,
@@ -155,7 +239,6 @@ async def create_schedule(
             return obj.isoformat()
         raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
 
-    # В ручке:
     db_schedule = Schedules(
         group=req.group, 
         schedule_data=json.loads(json.dumps(
@@ -168,7 +251,7 @@ async def create_schedule(
     await db.refresh(db_schedule)
     
     if redis_client:
-        await invalidate_schedule_cache(req.group, redis_client)
+        delete_cache_value(req.group, redis_client)
     
     LOG.info(f"Schedule created for group {req.group}")
     return {"status": "created", "schedule_id": db_schedule.id}
@@ -195,10 +278,22 @@ async def update_schedule(
     await db.refresh(db_schedule)
     
     if redis_client:
-        await invalidate_schedule_cache(group_name, redis_client)
+        delete_cache_value(group_name, redis_client)
     
     LOG.info(f"Schedule updated for group {group_name}")
     return {"status": "updated", "schedule_id": db_schedule.id}
+
+@app.get("/digital_university/api/v1/projects",
+         status_code=status.HTTP_200_OK,
+         response_model=schemas.ProjectsResponse)
+async def get_projects(
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Projects.name))
+    result = result.scalars().all()
+    if not result:
+        return schemas.ProjectsResponse(projects=[])
+    return schemas.ProjectsResponse(projects=result)
 
 @app.delete("/digital_university/api/v1/schedule/group/{group_name}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_schedule(
@@ -220,7 +315,7 @@ async def delete_schedule(
     await db.commit()
     
     if redis_client:
-        await invalidate_schedule_cache(group_name, redis_client)
+        delete_cache_value(group_name, redis_client)
     
     LOG.info(f"Schedule deleted for group {group_name}")
 
