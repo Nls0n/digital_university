@@ -19,22 +19,15 @@ LOG = structlog.get_logger()
 bot = Bot(os.getenv('MAX_TOKEN'))
 dp = Dispatcher()
 
-
-class UserRole(Enum):
-    STUDENT = "student"
-    APPLICANT = "applicant"
-    STAFF = "staff"
-
-
-async def get_main_menu(role: UserRole):
+async def get_main_menu(role):
     builder = InlineKeyboardBuilder()
 
-    if role == UserRole.APPLICANT:
+    if role == "applicant":
         builder.row(CallbackButton(text="🎓 Поступление", payload="@applicant-admission"))
         builder.row(CallbackButton(text="📅 Дни открытых дверей", payload="@applicant-open-days"))
         builder.row(CallbackButton(text="🏫 Информация о вузе", payload="@applicant-university-info"))
 
-    elif role == UserRole.STUDENT:
+    elif role == "student":
         builder.row(CallbackButton(text="📚 Расписание", payload="@student-schedule"))
         builder.row(CallbackButton(text="🎯 Проектная деятельность", payload="@student-projects"))
         builder.row(CallbackButton(text="💼 Карьера", payload="@student-career"))
@@ -43,11 +36,11 @@ async def get_main_menu(role: UserRole):
         builder.row(CallbackButton(text="🎪 Мероприятия", payload="@student-events"))
         builder.row(CallbackButton(text="📚 Библиотека", payload="@student-library"))
 
-    elif role == UserRole.STAFF:
-        builder.row(CallbackButton(text="✈️ Командировки", payload="@staff-business-trips"))
-        builder.row(CallbackButton(text="🏖️ Отпуска", payload="@staff-vacations"))
-        builder.row(CallbackButton(text="🏢 Офис", payload="@staff-office"))
-        builder.row(CallbackButton(text="🎪 Мероприятия", payload="@staff-events"))
+    elif role == "professor":
+        builder.row(CallbackButton(text="✈️ Командировки", payload="@professor-business-trips"))
+        builder.row(CallbackButton(text="🏖️ Отпуска", payload="@professor-vacations"))
+        builder.row(CallbackButton(text="🏢 Офис", payload="@professor-office"))
+        builder.row(CallbackButton(text="🎪 Мероприятия", payload="@professor-events"))
 
     return builder
 
@@ -60,58 +53,58 @@ async def bot_started(event: BotStarted):
     )
 
 
-@dp.message_created(Command("/start"))
+@dp.message_created(Command("start"))
 async def start_handler(event: MessageCreated):
     max_id = event.from_user.user_id
     request = requests.get(f"http://localhost:8000/digital_university/api/v1/presense/{max_id}")
-    statement = request.content
+    statement = bool(request.json())
+    print(statement)
 
     if not statement:
-        builder = InlineKeyboardBuilder()
-        builder.row(CallbackButton(text="🎓 Абитуриент", payload="@set-role-applicant"))
-        builder.row(CallbackButton(text="👨‍🎓 Студент", payload="@set-role-student"))
-        builder.row(CallbackButton(text="👨‍🏫 Сотрудник", payload="@set-role-staff"))
+
+        requests.post(f"http://localhost:8000/digital_university/api/v1/assign/{max_id}")
+
+        builder_auto = InlineKeyboardBuilder()
+        builder_auto.row(CallbackButton(text="🎓 Абитуриент", payload="@auto-set-role-applicant"))
+        builder_auto.row(CallbackButton(text="👨‍🎓 Студент", payload="@auto-set-role-student"))
+        builder_auto.row(CallbackButton(text="👨‍🏫 Сотрудник", payload="@auto-set-role-professor"))
 
         await event.message.answer(
-            "👋 Добро пожаловать в Цифровой ВУЗ!\n"
+            f"👋 Добро пожаловать в Цифровой ВУЗ, {event.from_user.first_name}!\n"
             "Я вижу вас впервые, так что давайте познакомимся!\n"
             "Выберите вашу роль для доступа к соответствующим сервисам:",
-            attachments=[builder.as_markup()]
+            attachments=[builder_auto.as_markup()]
         )
 
     else:
-        builder = InlineKeyboardBuilder()
-        builder.row(CallbackButton(text="➡️ Продолжить", payload=""))
+        builder_con = InlineKeyboardBuilder()
+        builder_con.row(CallbackButton(text="➡️ Продолжить", payload="@auto-success"))
 
+        await event.message.answer(
+            f"👋 Добро пожаловать в Цифровой ВУЗ, {event.from_user.first_name}!\n"
+            "Нажмите 'ПРОДОЛЖИТЬ' для перехода к сервисам:",
+            attachments=[builder_con.as_markup()]
+        )
 
-@dp.message_callback(F.callback.payload.startswith("@set_role_"))
+@dp.message_callback(F.callback.payload.startswith("@auto-"))
 async def role_selection_handler(event: MessageCallback):
     payload = event.callback.payload
-    user_id = event.from_user.user_id
+    max_id = event.from_user.user_id
 
-    if payload == "@set_role_applicant":
-        welcome_text = f"🎓 Добро пожаловать, абитуриент {event.from_user.first_name}!"
-    elif payload == "@set_role_student":
-        welcome_text = f"👨‍🎓 Добро пожаловать, студент {event.from_user.first_name}!"
-    elif payload == "@set_role_staff":
-        welcome_text = f"👨‍🏫 Добро пожаловать, сотрудник {event.from_user.first_name}!"
-    else:
-        return
+    if payload == "@auto-set-role-applicant":
+        requests.post(f"http://localhost:8000/digital_university/api/v1/assign/{max_id}/applicant")
+    elif payload == "@auto-set-role-student":
+        requests.post(f"/digital_university/api/v1/assign/{max_id}/student")
+    elif payload == "@auto-set-role-professor":
+        requests.post(f"/digital_university/api/v1/assign/{max_id}/professor")
 
-    menu = await get_main_menu()
 
-    await event.message.edit(
-        text=f"{welcome_text}\n\nВыберите нужный раздел:",
-        attachments=[menu.as_markup()]
-    )
 
 
 @dp.message_callback()
 async def main_menu_handler(event: MessageCallback):
     payload = event.callback.payload
     user_id = event.from_user.user_id
-
-    current_role = user_roles.get(user_id, UserRole.STUDENT)
 
     await event.answer()
 
@@ -285,28 +278,6 @@ async def main_menu_handler(event: MessageCallback):
         await event.message.edit(
             text=f"👋 Добро пожаловать, {role_text[current_role]} {event.from_user.first_name}!\n\nВыберите нужный раздел:",
             attachments=[menu.as_markup()]
-        )
-
-
-@dp.message_created(F.message.body.text)
-async def text_message_handler(event: MessageCreated):
-    text = event.message.body.text.lower()
-
-    if text in ['/start', 'старт', 'начать', 'меню']:
-        builder = InlineKeyboardBuilder()
-        builder.row(CallbackButton(text="🎓 Абитуриент", payload="role_applicant"))
-        builder.row(CallbackButton(text="👨‍🎓 Студент", payload="role_student"))
-        builder.row(CallbackButton(text="👨‍🏫 Сотрудник", payload="role_staff"))
-
-        await event.message.answer(
-            "👋 Добро пожаловать в Цифровой ВУЗ!\n\n"
-            "Выберите вашу роль для доступа к соответствующим сервисам:",
-            attachments=[builder.as_markup()]
-        )
-    else:
-        await event.message.answer(
-            "Используйте кнопки меню для навигации. "
-            "Если вы хотите вернуться в главное меню, отправьте /start"
         )
 
 
