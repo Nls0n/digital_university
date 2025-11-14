@@ -379,9 +379,15 @@ async def open_door_day_student_get(
     return {"students": students}
 
 
-@app.post("/digital_university/api/v1/statements/{max_id}/applicant", status_code=status.HTTP_201_CREATED)
-async def create_statement(max_id: int, db: AsyncSession = Depends(get_db)):
-    await db.execute(insert(Statements).values(status="Модерация", max_id=max_id, type="Заявление на поступление"))
+@app.post("/digital_university/api/v1/statements/{max_id}/{type}", status_code=status.HTTP_201_CREATED)
+async def create_statement(max_id: int, type:str, db: AsyncSession = Depends(get_db)):
+    await db.execute(insert(Statements).values(status="Модерация", max_id=max_id, type=type))
+    await db.commit()
+    return {"success": True}
+
+@app.get("/digital_university/api/v1/statements/{max_id}/{type}")
+async def get_statement(max_id: int, type:str, db: AsyncSession = Depends(get_db)):
+    await db.execute(select(Statements).where(max_id=max_id, type=type))
     await db.commit()
     return {"success": True}
 
@@ -408,7 +414,7 @@ async def get_statements(
 
     return res
 
-
+@app.get("")
 @app.get("digital_university/api/v1/statements/{statement_id}")
 async def get_statement_status(
     statement_id: int,
