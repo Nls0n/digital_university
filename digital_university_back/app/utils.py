@@ -3,40 +3,47 @@ import json
 import asyncpg
 import structlog
 import redis.asyncio as redis
-from typing import Optional, Dict
+from typing import Optional, Dict, Any, Literal
 
 LOG = structlog.get_logger()
 
-async def get_cached_schedule(group_name: str, redis_client: redis.Redis) -> Optional[Dict]:
-    """Получить расписание из кэша"""
+def get_cache_value(key: str, redis_client: redis.Redis) -> Optional[Dict]:
+    """Получить значение из кэша"""
     try:
-        cached = await redis_client.get(f"schedule:{group_name}")
+        cached = redis_client.get(key)
         if cached:
-            LOG.info(f"Schedule for group {group_name} found in cache")
-            return json.loads(cached)
+            LOG.info(f"get cached value from {key}, - {cached}")
+            return cached
     except Exception as e:
-        LOG.error(f"Error getting schedule from cache: {str(e)}")
+        LOG.error(f"Error getting value from cache: {str(e)}")
+    LOG.error(f"Error getting value from cache for key {key}")
     return None
 
-async def set_cached_schedule(group_name: str, schedule_data: Dict, redis_client: redis.Redis):
-    """Сохранить расписание в кэш"""
+def set_cache_value(key: str, value: Any, redis_client: redis.Redis):
+    """Сохранить значение в кэш"""
     try:
-        await redis_client.setex(
-            f"schedule:{group_name}",
+        if type(value) is list:
+            redis_client.setex(
+            key,
             3600,
-            json.dumps(schedule_data)
+            json.dumps(value).encode("utf-8")
         )
-        LOG.info(f"Schedule for group {group_name} cached successfully")
+        redis_client.setex(
+            key,
+            3600,
+            value
+        )
+        LOG.info(f"Value for key {key} cached successfully")
     except Exception as e:
-        LOG.error(f"Error caching schedule: {str(e)}")
+        LOG.error(f"Error caching value: {str(e)}")
 
-async def invalidate_schedule_cache(group_name: str, redis_client: redis.Redis):
-    """Удалить расписание из кэша"""
+async def delete_cached_value(key: str, redis_client: redis.Redis):
+    """Удалить значение из кэша"""
     try:
-        await redis_client.delete(f"schedule:{group_name}")
-        LOG.info(f"Schedule cache invalidated for group {group_name}")
+        await redis_client.delete(key)
+        LOG.info(f"Value deleted for key {key}")
     except Exception as e:
-        LOG.error(f"Error invalidating schedule cache: {str(e)}")
+        LOG.error(f"Error invalidating value from cache: {str(e)}")
 
 
 class Task:

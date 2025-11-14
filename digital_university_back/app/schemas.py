@@ -20,7 +20,13 @@ class Roles(StrEnum):
 class CacheRequest(BaseModel):
     value: str
     expire: int = 3600
-
+class ScheduleReponse(BaseModel):
+    id: int
+    group: str
+    schedule_data: dict
+class ProjectsResponse(BaseModel):
+    projects: list[str]
+    
 class Pair(BaseModel):
     subject: str
     professor: str

@@ -47,9 +47,9 @@ def setup_database():
         raise
 
 engine = create_async_engine(
-    SQLALCHEMY_DATABASE_URL,
+    SQLALCHEMY_DATABASE_URL,  # строка url postgresql+asyncpg ... 
     echo=True,
-    future=True
+    future=True,
 )
 
 AsyncSessionLocal = async_sessionmaker(

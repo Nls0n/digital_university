@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, ARRAY, Float, JSON
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, ARRAY, Float
+from sqlalchemy.dialects.postgresql.json import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from .database import Base
@@ -18,6 +19,7 @@ class Students(Base):
     __tablename__ = "students"
 
     id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
+    max_id = Column(Integer, primary_key=True, unique=True, nullable=False)
     email = Column(String, unique=True, nullable=False)
     name = Column(String, nullable=False)
     last_name = Column(String, nullable=False)
@@ -30,7 +32,7 @@ class Students(Base):
     has_scholarship = Column(Boolean, default=True)  # наличие стипендии
     in_dormitory = Column(Boolean, nullable=False)  # живет ли в общежитии
     course = Column(Integer, nullable=False)  # если отчислен - номер последнего пройденного курса
-    group = Column(Integer, nullable=True) #  если отчислен - id группы в которой числился
+    group = Column(String, nullable=True) #  если отчислен - id группы в которой числился
     department = Column(String, nullable=False)  # кафедра
     achievements_points = Column(Integer, default=0)  # баллы за достижения
     average_grade = Column(Integer, default=None)
@@ -47,10 +49,10 @@ class Grades(Base):
     __tablename__ = "grades"
 
     id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
-    student_id = Column(Integer, ForeignKey("students.id"))
+    student_max_id = Column(Integer, ForeignKey("students.max_id"))
     group = Column(Integer, nullable=False) 
     course = Column(Integer, nullable=False)
-    grades = Column(JSON)
+    grades = Column(JSONB)
     description = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -58,6 +60,7 @@ class Professors(Base):
     __tablename__ = "professors"
 
     id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
+    max_id = Column(Integer, primary_key=True, unique=True, nullable=False)
     email = Column(String, unique=True, nullable=False)
     name = Column(String, nullable=False)
     last_name = Column(String, nullable=False) 
@@ -78,8 +81,9 @@ class Schedules(Base):
     __tablename__ = "schedules"
     
     id = Column(Integer, primary_key=True)
+    professor = Column(Integer)  # max_id
     group = Column(String, nullable=True)
-    schedule_data = Column(JSON)  
+    schedule_data = Column(JSONB)  
 
 class Projects(Base):
     __tablename__ = "projects"
@@ -122,6 +126,7 @@ class Applicants(Base):
     __tablename__ = "applicants"
 
     id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
+    max_id = Column(Integer, primary_key=True, unique=True, nullable=False)
     name = Column(String, nullable=False)
     email = Column(String, nullable=False, unique=True)
     phone_number = Column(String, nullable=False, unique=True)
@@ -147,3 +152,34 @@ class Roles(Base):
     professors = Column(ARRAY(Integer))  # массив id преподавателей
     applicants = Column(ARRAY(Integer))  # массив id абитуриентов
     admins = Column(ARRAY(Integer))  # массив id админов
+
+class OpenDoorDays(Base):
+    __tablename__ = "opendoordays"
+
+    id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
+    name = Column(String, nullable=False)
+    date = Column(String, nullable=False)
+    students = Column(ARRAY(Integer))  # max_id
+
+class Statements(Base):
+    __tablename__ = "statements"
+
+    id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
+    max_id = Column(Integer, nullable=False)
+    type = Column(String)
+
+class Guests(Base):
+    __tablename__ = "guests"
+
+    id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
+    name = Column(String, nullable=False)
+    last_name = Column(String, nullable=False)
+    patronymic = Column(String, nullable=False)
+
+class ProjectSuggestions(Base):
+    __tablename__ = "projectsuggestions"
+
+    id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
+    max_id = Column(Integer)
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=False)
