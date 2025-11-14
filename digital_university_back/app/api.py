@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, status, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete
+from sqlalchemy import select, update, delete, insert
 from sqlalchemy.exc import NoResultFound
 from typing import Dict, Any
 import redis.asyncio as redis
@@ -164,6 +164,19 @@ async def get_schedule(
 
     return schedule_data
 
+@app.post("/digital_university/api/v1/assign/{max_id}")
+async def assign_user(max_id: int,
+    db: AsyncSession = Depends(get_db),
+    redis_client: redis.Redis = Depends(get_redis),
+):
+  user = await db.execute(select(Users.max_id).where(Users.max_id == max_id))
+  user = user.scalar_one_or_none()
+  if user:
+      raise HTTPException(404, "User already exists")
+  db.execute(insert(Users).values(max_id=max_id))
+  db.commit()
+  db.refresh(db)
+  return {"status": "added", "user_max_id": max_id}
 
 @app.get("/digital_university/api/v1/presense/{max_id}", status_code=status.HTTP_200_OK)
 async def check_presense(
@@ -284,7 +297,7 @@ async def open_door_day_student_remove(
     await db.commit()
     set_cache_value(
         f"/digital_university/api/v1/opendoordays/{name}/students",
-        students,
+        json.dumps(json.loads(students)),
         redis_client,
     )
     return {"status": "removed", "students": students}
@@ -356,9 +369,9 @@ async def get_statement_status(
     status = status.scalar_one_or_none()
 
     if status:
-        return status
+        return {"status": status}
     raise HTTPException(404, "No statement was found")
-
+@app.post("digital_university/api/v1/statements/applicant/{max_id}")
 
 @app.put("digital_university/api/v1/statements/{statement_id}/{status}")
 async def change_statement_status(
@@ -808,7 +821,6 @@ async def get_student_societies(student_id: int, db: AsyncSession = Depends(get_
 
 @app.post("/digital_university/api/v1/societes/add")
 async def add_student_to_society(name: str, last_name: str):
-    """Логика авторизации (maybe some day...)"""
     pass
 
 
