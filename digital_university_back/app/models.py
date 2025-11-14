@@ -28,10 +28,10 @@ class Subjects(Base):
     __tablename__ = "subjects"
 
     id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
-    name = Column(String, nullable=False)
-    department = Column(Integer, nullable=False)  # id факультета
-    department_dean = Column(Integer, nullable=False)  # id декана факультета
-    type = Column(String, nullable=False)  # тип: зачет\диф зачет\экзамен
+    name = Column(String, nullable=True)
+    department = Column(Integer, nullable=True)  # id факультета
+    department_dean = Column(Integer, nullable=True)  # id декана факультета
+    type = Column(String, nullable=True)  # тип: зачет\диф зачет\экзамен
     courses = Column(
         ARRAY(Integer), nullable=True
     )  # предполагается что может быть предмет который еще не введен в программу
@@ -42,33 +42,33 @@ class Students(Base):
 
     id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
     max_id = Column(Integer, primary_key=True, unique=True, nullable=False)
-    email = Column(String, unique=True, nullable=False)
-    name = Column(String, nullable=False)
-    last_name = Column(String, nullable=False)
-    patronymic = Column(String, nullable=False)
-    birth_date = Column(DateTime, nullable=False)
-    hashed_password = Column(String, nullable=False)
+    email = Column(String, unique=True, nullable=True)
+    name = Column(String, nullable=True)
+    last_name = Column(String, nullable=True)
+    patronymic = Column(String, nullable=True)
+    birth_date = Column(DateTime, nullable=True)
+    hashed_password = Column(String, nullable=True)
     is_listed = Column(Boolean, default=True)  # числится в университете или отчислен
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     achievments = Column(ARRAY(String), nullable=True, default=None)
     has_scholarship = Column(Boolean, default=True)  # наличие стипендии
-    in_dormitory = Column(Boolean, nullable=False)  # живет ли в общежитии
+    in_dormitory = Column(Boolean, nullable=True)  # живет ли в общежитии
     course = Column(
-        Integer, nullable=False
+        Integer, nullable=True
     )  # если отчислен - номер последнего пройденного курса
     group = Column(
         String, nullable=True
     )  #  если отчислен - id группы в которой числился
-    department = Column(String, nullable=False)  # кафедра
+    department = Column(String, nullable=True)  # кафедра
     achievements_points = Column(Integer, default=0)  # баллы за достижения
     average_grade = Column(Integer, default=None)
     societes = Column(
         ARRAY(Integer), nullable=True, default=None
     )  # в каких студенческих обществах состоит (массив id)
     joined_at = Column(DateTime, default=func.now())  # дата поступления в УНИВЕРСИТЕТ!!
-    skips_count = Column(Integer, nullable=False, default=0)  # количество пропусков
-    visits_percent = Column(Float, nullable=False, default=100)  # процент посещаемости
-    debts = Column(Integer, nullable=False, default=0)  # долги по учебе
+    skips_count = Column(Integer, nullable=True, default=0)  # количество пропусков
+    visits_percent = Column(Float, nullable=True, default=100)  # процент посещаемости
+    debts = Column(Integer, nullable=True, default=0)  # долги по учебе
     academic_vacation = Column(Boolean, default=False)  # в академе?
     academic_vacation_start = Column(DateTime, nullable=True, default=None)
     academic_vacation_end = Column(DateTime, nullable=True, default=None)
@@ -80,8 +80,8 @@ class Grades(Base):
 
     id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
     student_max_id = Column(Integer, ForeignKey("students.max_id"))
-    group = Column(Integer, nullable=False)
-    course = Column(Integer, nullable=False)
+    group = Column(Integer, nullable=True)
+    course = Column(Integer, nullable=True)
     grades = Column(JSONB)
     description = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -92,17 +92,17 @@ class Professors(Base):
 
     id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
     max_id = Column(Integer, primary_key=True, unique=True, nullable=False)
-    email = Column(String, unique=True, nullable=False)
-    name = Column(String, nullable=False)
-    last_name = Column(String, nullable=False)
-    patronymic = Column(String, nullable=False)
-    birth_date = Column(DateTime, nullable=False)
-    hashed_password = Column(String, nullable=False)
+    email = Column(String, unique=True, nullable=True)
+    name = Column(String, nullable=True)
+    last_name = Column(String, nullable=True)
+    patronymic = Column(String, nullable=True)
+    birth_date = Column(DateTime, nullable=True)
+    hashed_password = Column(String, nullable=True)
     groups = Column(ARRAY(String))  # массив груп которые закреплены за преподом
     subjects = Column(ARRAY(String))  # массив дисциплин которые ведет препод
-    post = Column(String, nullable=False)  # должность
-    joined_at = Column(DateTime, nullable=False)
-    department = Column(Integer, nullable=False)  # id факультета
+    post = Column(String, nullable=True)  # должность
+    joined_at = Column(DateTime, nullable=True)
+    department = Column(Integer, nullable=True)  # id факультета
     roles = Column(ARRAY(String))  # роли юзера
 
 
@@ -119,7 +119,7 @@ class Projects(Base):
     __tablename__ = "projects"
 
     id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
-    name = Column(String, nullable=False)
+    name = Column(String, nullable=True)
     people = Column(ARRAY(Integer), default=None)  # массив id участвующих в проекте
 
 
@@ -127,23 +127,23 @@ class Departments(Base):  # факультеты
     __tablename__ = "departments"
 
     id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
-    name = Column(String, nullable=False)
+    name = Column(String, nullable=True)
     code = Column(
-        String, nullable=False, primary_key=True, unique=True
+        String, nullable=True, primary_key=True, unique=True
     )  # код направления, например 09.03.02 и тд
-    dean = Column(Integer, nullable=False)  # id декана факультета
+    dean = Column(Integer, nullable=True)  # id декана факультета
 
 
 class Groups(Base):
     __tablename__ = "groups"
 
     id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
-    name = Column(String, nullable=False)
-    course = Column(Integer, nullable=False)  # курс
+    name = Column(String, nullable=True)
+    course = Column(Integer, nullable=True)  # курс
     subjects = Column(ARRAY(Integer))  # предметы
     code = Column(
         String,
-        nullable=False,
+        nullable=True,
     )  # код направления, например 09.03.02 и тд
     tutor = Column(Integer)  # id старшего куратора группы
     young_tutor = Column(Integer)  # id младшего кураторы группы
@@ -155,7 +155,7 @@ class Societies(Base):
     __tablename__ = "societes"
 
     id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
-    name = Column(String, nullable=False)
+    name = Column(String, nullable=True)
     chairman = Column(Integer, ForeignKey("students.id"))  # председатель
     students = Column(ARRAY(Integer))
 
@@ -164,13 +164,13 @@ class Applicants(Base):
     __tablename__ = "applicants"
 
     id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
-    max_id = Column(Integer, primary_key=True, unique=True, nullable=False)
-    name = Column(String, nullable=False)
-    email = Column(String, nullable=False, unique=True)
-    phone_number = Column(String, nullable=False, unique=True)
-    patronymic = Column(String, nullable=False)  #
-    insurance_policy = Column(String, nullable=False)  #  СНИЛС
-    roles = Column(ARRAY(String))  # роли юзера
+    max_id = Column(Integer, primary_key=True, unique=True, nullable=True)
+    name = Column(String, nullable=True)
+    email = Column(String, nullable=True, unique=True)
+    phone_number = Column(String, nullable=True, unique=True)
+    patronymic = Column(String, nullable=True)  #
+    insurance_policy = Column(String, nullable=True)  #  СНИЛС
+    role = Column(String)  
 
 
 class Tasks(Base):
@@ -197,8 +197,8 @@ class OpenDoorDays(Base):
     __tablename__ = "opendoordays"
 
     id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
-    name = Column(String, nullable=False)
-    date = Column(String, nullable=False)
+    name = Column(String, nullable=True)
+    date = Column(String, nullable=True)
     students = Column(ARRAY(Integer))  # max_id
 
 
@@ -208,16 +208,16 @@ class Statements(Base):
     id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
     max_id = Column(Integer, nullable=False)
     type = Column(String)
-    status = Column(String, nullable=False)
+    status = Column(String, nullable=True)
 
 
 class Guests(Base):
     __tablename__ = "guests"
 
     id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
-    name = Column(String, nullable=False)
-    last_name = Column(String, nullable=False)
-    patronymic = Column(String, nullable=False)
+    name = Column(String, nullable=True)
+    last_name = Column(String, nullable=True)
+    patronymic = Column(String, nullable=True)
 
 
 class ProjectSuggestions(Base):
@@ -225,5 +225,5 @@ class ProjectSuggestions(Base):
 
     id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
     max_id = Column(Integer)
-    name = Column(String, nullable=False)
-    description = Column(String, nullable=False)
+    name = Column(String, nullable=True)
+    description = Column(String, nullable=True)

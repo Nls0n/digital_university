@@ -210,19 +210,19 @@ async def assign_user_role(max_id: int,
   role = role.lower()
   match role:
     case "student":
-        db.execute(insert(Students).values(max_id=max_id))
-        db.execute(insert(Users).values(role="student"))
-        db.commit()
+        await db.execute(update(Students.role).values(max_id=max_id).where(Students.max_id == max_id))
+        await db.execute(update(Users.role).values(max_id=max_id).where(Users.max_id == max_id))
+        await db.commit()
         return {"status": "added", "user_max_id": max_id, "role": role.lower()}
     case "professor":
-        db.execute(insert(Professors).values(max_id=max_id))
-        db.execute(insert(Users).values(role="professor"))
-        db.commit()
+        await db.execute(update(Professors.role).values(max_id=max_id).where(Professors.max_id == max_id))
+        await db.execute(update(Users.role).values(max_id=max_id).where(Students.max_id == max_id))
+        await db.commit()
         return {"status": "added", "user_max_id": max_id, "role": role.lower()}
     case "applicant":
-        db.execute(insert(Applicants).values(max_id=max_id))
-        db.execute(insert(Users).values(role="applicant"))
-        db.commit()
+        await db.execute(insert(Applicants).values(max_id=max_id))
+        await db.execute(insert(Users).values(role="applicant"))
+        await db.commit()
         return {"status": "added", "user_max_id": max_id, "role": role.lower()}
           
   raise HTTPException(404, "role not found")
@@ -249,6 +249,7 @@ async def check_presense(
     set_cache_value(url, 0, redis_client)
     return False
 
+@app.post("")
 
 @app.get(
     "/digital_university/api/v1/opendoordays/dates", status_code=status.HTTP_200_OK
