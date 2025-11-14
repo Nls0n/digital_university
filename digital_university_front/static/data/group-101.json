@@ -1,0 +1,15 @@
+{
+  "students": [
+    { "name": "Иван Петров", "grade": 8 },
+    { "name": "Анна Смирнова", "grade": 9 },
+    { "name": "Егор Орлов", "grade": 7 }
+  ],
+  "assignments": [
+    { "title": "Лабораторная №1" },
+    { "title": "Домашнее задание №2" }
+  ],
+  "stats": {
+    "avg_grade": 8.1,
+    "completed": 42
+  }
+}

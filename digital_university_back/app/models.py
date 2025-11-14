@@ -19,6 +19,7 @@ class Users(Base):
     id = Column(Integer, primary_key=True, unique=True, index=True, autoincrement=True)
     max_id = Column(Integer, primary_key=True, unique=True, nullable=False)
     username = Column(String, nullable=True)
+    role = Column(String)
     phone_number = Column(String, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 

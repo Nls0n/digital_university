@@ -210,15 +210,18 @@ async def assign_user_role(max_id: int,
   role = role.lower()
   match role:
     case "student":
-        db.execute(insert(Users).values(max_id=max_id))
+        db.execute(insert(Students).values(max_id=max_id))
+        db.execute(insert(Users).values(role="student"))
         db.commit()
         return {"status": "added", "user_max_id": max_id, "role": role.lower()}
     case "professor":
         db.execute(insert(Professors).values(max_id=max_id))
+        db.execute(insert(Users).values(role="professor"))
         db.commit()
         return {"status": "added", "user_max_id": max_id, "role": role.lower()}
     case "applicant":
         db.execute(insert(Applicants).values(max_id=max_id))
+        db.execute(insert(Users).values(role="applicant"))
         db.commit()
         return {"status": "added", "user_max_id": max_id, "role": role.lower()}
           
@@ -376,13 +379,19 @@ async def open_door_day_student_get(
     return {"students": students}
 
 
-@app.get("digital_university/api/v1/statements/{max_id}")
+@app.post("/digital_university/api/v1/statements/{max_id}/applicant", status_code=status.HTTP_201_CREATED)
+async def create_statement(max_id: int, db: AsyncSession = Depends(get_db)):
+    await db.execute(insert(Statements).values(status="Модерация", max_id=max_id, type="Заявление на поступление"))
+    await db.commit()
+    return {"success": True}
+
+@app.get("/digital_university/api/v1/statements/{max_id}")
 async def get_statements(
     max_id: int,
     db: AsyncSession = Depends(get_db),
     redis_client: redis.Redis = Depends(get_redis),
 ):
-    url = f"digital_university/api/v1/statements/{max_id}"
+    url = f"/digital_university/api/v1/statements/{max_id}"
     if redis_client:
         statements = get_cache_value(url, redis_client)
         if statements:
@@ -625,8 +634,19 @@ async def delete_student_from_group(
         update(Groups).where(Groups.id == group_id).values(students=students_list)
     )
     await db.commit()
-
-
+@app.get("digital_university/api/v1/student/{max_id}/role")
+async def get_role(max_id: int, db: AsyncSession = Depends(get_db), redis_client: redis.Redis = Depends(get_redis)):
+    url =f"digital_university/api/v1/student/{max_id}/role"
+    if redis_client:
+        role = get_cache_value(url)
+        if role:
+            return {"role": role}
+    role = await db.execute(select(Users.role).where(Users.max_id == max_id))
+    role = role.scalar_one_or_none()
+    if role:
+        set_cache_value(url, {"role": role}, redis_client=redis_client)
+        return {"role": role}
+    
 @app.get(
     "/digital_university/api/v1/student/{student_id}/grades",
     status_code=status.HTTP_200_OK,
