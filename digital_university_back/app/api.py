@@ -19,7 +19,7 @@ from .database import (
     create_tables,
 )
 from .models import *
-from .utils import get_cache_value, set_cache_value
+from .utils import get_cache_value, set_cache_value, delete_cached_value
 from . import schemas
 from .database import setup_database
 
@@ -209,24 +209,21 @@ async def assign_user_role(max_id: int,
 ):
   role = role.lower()
   match role:
-    case "student":
-        await db.execute(update(Students.role).values(max_id=max_id).where(Students.max_id == max_id))
-        await db.execute(update(Users.role).values(max_id=max_id).where(Users.max_id == max_id))
-        await db.commit()
-        bot.send_message(user_id=max_id, text="Теперь вы числитесь в рядах студентов!")
-        return {"status": "added", "user_max_id": max_id, "role": role.lower()}
-    case "professor":
-        await db.execute(update(Professors.role).values(max_id=max_id).where(Professors.max_id == max_id))
-        await db.execute(update(Users.role).values(max_id=max_id).where(Students.max_id == max_id))
-        await db.commit()
-        bot.send_message(user_id=max_id, text="Теперь вы числитесь в рядах преподавателей!")
-        return {"status": "added", "user_max_id": max_id, "role": role.lower()}
-    case "applicant":
-        await db.execute(insert(Applicants).values(max_id=max_id))
-        await db.execute(insert(Users).values(role="applicant"))
-        await db.commit()
-        bot.send_message(user_id=max_id, text="Теперь вы числитесь в рядах абитуриентов!")
-        return {"status": "added", "user_max_id": max_id, "role": role.lower()}
+      case "student":
+          await db.execute(update(Students).values(max_id=max_id, role=role).where(Students.max_id == max_id))
+          await db.execute(update(Users).values(max_id=max_id, role=role).where(Users.max_id == max_id))
+          await db.commit()
+          return {"status": "added", "user_max_id": max_id, "role": role.lower()}
+      case "professor":
+          await db.execute(update(Professors).values(max_id=max_id, role=role).where(Professors.max_id == max_id))
+          await db.execute(update(Users).values(max_id=max_id, role=role).where(Users.max_id == max_id))
+          await db.commit()
+          return {"status": "added", "user_max_id": max_id, "role": role.lower()}
+      case "applicant":
+          await db.execute(update(Applicants).values(max_id=max_id, role=role).where(Applicants.max_id == max_id))
+          await db.execute(update(Users).values(max_id=max_id, role=role).where(Users.max_id == max_id))
+          await db.commit()
+          return {"status": "added", "user_max_id": max_id, "role": role.lower()}
           
   raise HTTPException(404, "role not found")
 
@@ -236,22 +233,24 @@ async def assign_user_role(max_id: int,
 async def check_presense(
     max_id: int,
     db: AsyncSession = Depends(get_db),
-    redis_client: redis.Redis = Depends(get_redis),
+    # redis_client: redis.Redis = Depends(get_redis),
 ):
     url = f"/digital_university/api/v1/presense/{max_id}"
-    if redis_client:
-        cached_value = get_cache_value(url, redis_client)
-        if cached_value:
-            return "1" == cached_value
+    # if redis_client:
+    #     cached_value = get_cache_value(url, redis_client)
+    #     if cached_value:
+    #         return "1" == cached_value
     student_exists = await db.execute(
         select(Users.max_id).where(Users.max_id == max_id)
     )
     student_exists = student_exists.scalar_one_or_none()
     if student_exists:
-        set_cache_value(url, "1", redis_client)
+        # set_cache_value(url, "1", redis_client)
         return True
-    set_cache_value(url, "0", redis_client)
+    # set_cache_value(url, "0", redis_client)
     return False
+
+@app.post("")
 
 
 @app.get(
@@ -306,7 +305,6 @@ async def open_door_day_student_append(
             .values(students=students)
         )
         await db.commit()
-        bot.send_message(user_id=max_id, text=f"Вы записаны на день открытых дверей '{name}'")
         return {"status": "added", "students": students}
     if max_id in students:
         raise HTTPException(404, "Student already registered")
@@ -319,7 +317,7 @@ async def open_door_day_student_append(
         redis_client=redis_client
     )
     await db.commit()
-    bot.send_message(user_id=max_id, text=f"Вы записаны на день открытых дверей '{name}'")
+
     return {"status": "added", "students": students}
 
 
@@ -358,7 +356,6 @@ async def open_door_day_student_remove(
         {"status": "removed", "students": students},
         redis_client,
     )
-    bot.send_message(user_id=max_id, text=f"Вы были удалены из  списка на день открытых дверей '{name}'")
     return {"status": "removed", "students": students}
 
 
@@ -389,7 +386,6 @@ async def open_door_day_student_get(
 async def create_statement(max_id: int, type:str, db: AsyncSession = Depends(get_db)):
     await db.execute(insert(Statements).values(status="Модерация", max_id=max_id, type=type))
     await db.commit()
-    bot.send_message(user_id=max_id,text=f"Заявление {type} подано! Статус: модерации")
     return {"success": True}
 
 @app.get("/digital_university/api/v1/statements/{max_id}/{type}")
@@ -422,13 +418,14 @@ async def get_statements(
     return res
 
 
-@app.get("digital_university/api/v1/statements/{max_id}")
+
+@app.get("/digital_university/api/v1/statements/{max_id}")
 async def get_statement_status(
     max_id: int,
     db: AsyncSession = Depends(get_db),
     redis_client: redis.Redis = Depends(get_redis),
 ):
-    url = f"digital_university/api/v1/statements/{max_id}"
+    url = f"/digital_university/api/v1/statements/{max_id}"
     status = await db.execute(select(Statements.status).where(Statements.max_id == max_id))
     status = status.scalar_one_or_none()
     if redis_client:
@@ -438,6 +435,17 @@ async def get_statement_status(
     return status
 
 
+
+@app.put("/digital_university/api/v1/statements/{statement_id}/{status}")
+async def change_statement_status(
+    statement_id: int,
+    status: str,
+    db: AsyncSession = Depends(get_db),
+    redis_client: redis.Redis = Depends(get_redis),
+):
+    url = f"/digital_university/api/v1/statements/{statement_id}"
+
+    await db.execute()
 
 
 @app.post("/digital_university/api/v1/schedule/", status_code=status.HTTP_201_CREATED)
@@ -630,11 +638,11 @@ async def delete_student_from_group(
         update(Groups).where(Groups.id == group_id).values(students=students_list)
     )
     await db.commit()
-@app.get("digital_university/api/v1/student/{max_id}/role")
+@app.get("/digital_university/api/v1/student/{max_id}/role")
 async def get_role(max_id: int, db: AsyncSession = Depends(get_db), redis_client: redis.Redis = Depends(get_redis)):
-    url =f"digital_university/api/v1/student/{max_id}/role"
+    url =f"/digital_university/api/v1/student/{max_id}/role"
     if redis_client:
-        role = get_cache_value(url)
+        role = get_cache_value(url, redis_client)
         if role:
             return {"role": role}
     role = await db.execute(select(Users.role).where(Users.max_id == max_id))
@@ -642,6 +650,7 @@ async def get_role(max_id: int, db: AsyncSession = Depends(get_db), redis_client
     if role:
         set_cache_value(url, {"role": role}, redis_client=redis_client)
         return {"role": role}
+    return {"hui": None}
     
 @app.get(
     "/digital_university/api/v1/student/{student_id}/grades",

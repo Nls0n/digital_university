@@ -13,7 +13,6 @@ from digital_university_back.app.database import engine
 from digital_university_back.app.models import *
 import requests
 
-
 load_dotenv()
 LOG = structlog.get_logger()
 bot = Bot(os.getenv('MAX_TOKEN'))
@@ -30,17 +29,11 @@ async def get_main_menu(role):
     elif role == "student":
         builder.row(CallbackButton(text="📚 Расписание", payload="@student-schedule"))
         builder.row(CallbackButton(text="🎯 Проектная деятельность", payload="@student-projects"))
-        builder.row(CallbackButton(text="💼 Карьера", payload="@student-career"))
         builder.row(CallbackButton(text="📋 Деканат", payload="@student-deanery"))
-        builder.row(CallbackButton(text="🏠 Общежитие", payload="@student-dormitory"))
-        builder.row(CallbackButton(text="🎪 Мероприятия", payload="@student-events"))
-        builder.row(CallbackButton(text="📚 Библиотека", payload="@student-library"))
 
     elif role == "professor":
         builder.row(CallbackButton(text="✈️ Командировки", payload="@professor-business-trips"))
         builder.row(CallbackButton(text="🏖️ Отпуска", payload="@professor-vacations"))
-        builder.row(CallbackButton(text="🏢 Офис", payload="@professor-office"))
-        builder.row(CallbackButton(text="🎪 Мероприятия", payload="@professor-events"))
 
     return builder
 
@@ -56,13 +49,13 @@ async def bot_started(event: BotStarted):
 @dp.message_created(Command("start"))
 async def start_handler(event: MessageCreated):
     max_id = event.from_user.user_id
-    request = requests.get(f"http://localhost:8000/digital_university/api/v1/presense/{max_id}")
-    statement = bool(request.json())
-    print(statement)
+    request = requests.get(f"http://gutech-nelson.amvera.io/digital_university/api/v1/presense/{max_id}")
+    presence = bool(request.json())
+    print(presence)
 
-    if not statement:
+    if not presence:
 
-        requests.post(f"http://localhost:8000/digital_university/api/v1/assign/{max_id}")
+        requests.post(f"http://gutech-nelson.amvera.io/digital_university/api/v1/assign/{max_id}")
 
         builder_auto = InlineKeyboardBuilder()
         builder_auto.row(CallbackButton(text="🎓 Абитуриент", payload="@auto-set-role-applicant"))
@@ -89,29 +82,235 @@ async def start_handler(event: MessageCreated):
 @dp.message_callback(F.callback.payload.startswith("@auto-"))
 async def role_selection_handler(event: MessageCallback):
     payload = event.callback.payload
+    user_first_name = event.from_user.first_name
     max_id = event.from_user.user_id
 
     if payload == "@auto-set-role-applicant":
-        requests.post(f"http://localhost:8000/digital_university/api/v1/assign/{max_id}/applicant")
+        requests.post(f"http://gutech-nelson.amvera.io/digital_university/api/v1/assign/{max_id}/applicant")
     elif payload == "@auto-set-role-student":
-        requests.post(f"/digital_university/api/v1/assign/{max_id}/student")
+        requests.post(f"http://gutech-nelson.amvera.io/digital_university/api/v1/assign/{max_id}/student")
     elif payload == "@auto-set-role-professor":
-        requests.post(f"/digital_university/api/v1/assign/{max_id}/professor")
+        requests.post(f"http://gutech-nelson.amvera.io/digital_university/api/v1/assign/{max_id}/professor")
+
+    request = requests.get(f"http://gutech-nelson.amvera.io/digital_university/api/v1/student/{max_id}/role")
+    role = str(request.json()['role'])
+    print(role)
+
+    roles = {'applicant': 'Абитуриент', 'student': 'Студент', 'professor': 'Сотрудник'}
+
+    menu = await get_main_menu(role)
+
+    await event.message.edit(
+        text=f"{roles[role]} {user_first_name}\n\nВыберите нужный раздел:",
+        attachments=[menu.as_markup()]
+    )
 
 
+@dp.message_callback(F.callback.payload.startswith("@act-applicant-"))
+async def applicant_handler(event: MessageCallback):
+    payload = event.callback.payload
+    max_id = event.from_user.user_id
+
+    if payload == "@act-applicant-application":
+
+        requests.post(f"http://gutech-nelson.amvera.io/digital_university/api/v1/statements/{max_id}/application")
+
+        builder = InlineKeyboardBuilder()
+        builder.row(CallbackButton(text="⬅️ Назад", payload="@all-main-menu"))
+
+        await event.message.edit(
+            text="📝 **Подать заявление**\n\n"
+                 "Заявление успешно подано.",
+            attachments=[builder.as_markup()]
+        )
+
+
+    if payload == "@act-applicant-check-status":
+
+        request = requests.get(f"http://localhost::8000/digital_university/api/v1/statements/{max_id}")
+        string = request.text
+        print(string)
+
+        builder = InlineKeyboardBuilder()
+        builder.row(CallbackButton(text="⬅️ Назад", payload="@all-main-menu"))
+
+        await event.message.edit(
+            text="📝 **Статус заявления**\n\n"
+                 f"Статус: {string}\n.",
+            attachments=[builder.as_markup()]
+        )
+
+    if payload == "@act-applicant-sign-up-on-open-day":
+
+        import random
+
+        name = random.randint(1, 10**3)
+
+        requests.put(f"http://gutech-nelson.amvera.io/digital_university/api/v1/opendoordays/{name}/student/{max_id}")
+
+        builder = InlineKeyboardBuilder()
+        builder.row(CallbackButton(text="⬅️ Назад", payload="@all-main-menu"))
+
+        await event.message.edit(
+            text=f"📅 **Записаться на день открытых дверей**\n\n"
+                "Вы успешно записались на день открытых дверей.\n",
+            attachments=[builder.as_markup()]
+        )
+
+    if payload == "@act-applicant-about-university":
+
+        builder = InlineKeyboardBuilder()
+        builder.row(CallbackButton(text="⬅️ Назад", payload="@all-main-menu"))
+
+        await event.message.edit(
+            text=f"🏫 **Информация об университете**\n\n"
+                "Информация об университете...\n",
+            attachments=[builder.as_markup()]
+        )
+
+    if payload == "@act-applicant-studying-programmes":
+
+        builder = InlineKeyboardBuilder()
+        builder.row(CallbackButton(text="⬅️ Назад", payload="@all-main-menu"))
+
+        await event.message.edit(
+            text=f"🏫 **Информация об образовательных программах**\n\n"
+                 "Информация об образовательных программах...\n",
+            attachments=[builder.as_markup()]
+        )
+
+
+@dp.message_callback(F.callback.payload.startswith("@act-student-"))
+async def student_handler(event: MessageCallback):
+    payload = event.callback.payload
+    max_id = event.from_user.user_id
+
+    if payload == "@act-student-current-schedule":
+
+        request = requests.get(f"http://gutech-nelson.amvera.io/digital_university/api/v1/schedule/student/{max_id}")
+        data = request.json()
+
+        days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+
+        result_text = "Ваше расписание:\n\n"
+
+        for day_name in days:
+            day_schedule = getattr(data, day_name)
+            if day_schedule:
+                result_text += f"📅 {day_name.capitalize()}:\n"
+                for pair in day_schedule:
+                    result_text += f"• {pair.subject} ({pair.start.strftime('%H:%M')}-{pair.end.strftime('%H:%M')})\n"
+                    result_text += f"  Преподаватель: {pair.professor}\n"
+                    result_text += f"  Аудитория: {pair.audience}\n\n"
+
+        builder = InlineKeyboardBuilder()
+        builder.row(CallbackButton(text="⬅️ Назад", payload="@all-main-menu"))
+
+        await event.message.edit(
+            text=result_text,
+            attachments=[builder.as_markup()]
+        )
+
+
+    if payload == "@act-student-available-project":
+
+        request = requests.get(f"http://gutech-nelson.amvera.io/digital_university/api/v1/projects")
+        lst = request.json()
+
+        result_text = "*** Доступные проекты:\n"
+        i = 0
+
+        for project in lst:
+            i += 1
+            result_text += f"{i}. {project}\n"
+
+        builder = InlineKeyboardBuilder()
+        builder.row(CallbackButton(text="⬅️ Назад", payload="@all-main-menu"))
+
+        await event.message.edit(
+            text=result_text,
+            attachments=[builder.as_markup()]
+        )
+
+    if payload == "@act-student-studying-payment":
+        requests.post(f"http://gutech-nelson.amvera.io/digital_university/api/v1/statements/{max_id}/inquiry")
+
+        builder = InlineKeyboardBuilder()
+        builder.row(CallbackButton(text="⬅️ Назад", payload="@all-main-menu"))
+
+        await event.message.edit(
+            text="💳 **Оплата обучения**\n\n"
+                 "Заявление успешно подано.",
+            attachments=[builder.as_markup()]
+        )
+
+    if payload == "@act-student-academic-vacation":
+        requests.post(f"http://gutech-nelson.amvera.io/digital_university/api/v1/statements/{max_id}/payment")
+
+        builder = InlineKeyboardBuilder()
+        builder.row(CallbackButton(text="⬅️ Назад", payload="@all-main-menu"))
+
+        await event.message.edit(
+            text="📝 **Академический отпуск**\n\n"
+                 "Заявление успешно подано.",
+            attachments=[builder.as_markup()]
+        )
+
+    if payload == "@act-student-translation":
+        requests.post(f"http://gutech-nelson.amvera.io/digital_university/api/v1/statements/{max_id}/inquiry")
+
+        builder = InlineKeyboardBuilder()
+        builder.row(CallbackButton(text="⬅️ Назад", payload="@all-main-menu"))
+
+        await event.message.edit(
+            text="🚗 **Перевод**\n\n"
+                 "Заявление успешно подано.",
+            attachments=[builder.as_markup()]
+        )
+
+
+@dp.message_callback(F.callback.payload.startswith("@act-professor-"))
+async def professor_handler(event: MessageCallback):
+    payload = event.callback.payload
+    max_id = event.from_user.user_id
+
+    if payload == "@act-staff-business-trip":
+        requests.post(f"http://gutech-nelson.amvera.io/digital_university/api/v1/statements/{max_id}/business-trips")
+
+        builder = InlineKeyboardBuilder()
+        builder.row(CallbackButton(text="⬅️ Назад", payload="@all-main-menu"))
+
+        await event.message.edit(
+            text="✈️ **Запрос командировки**\n\n"
+                 "Заявление успешно подано.",
+            attachments=[builder.as_markup()]
+        )
+
+    if payload == "@act-staff-vacation":
+        requests.post(f"http://gutech-nelson.amvera.io/digital_university/api/v1/statements/{max_id}/vacations")
+
+        builder = InlineKeyboardBuilder()
+        builder.row(CallbackButton(text="⬅️ Назад", payload="@all-main-menu"))
+
+        await event.message.edit(
+            text="🏖️ **Запрос отпуска**\n\n"
+                 "Заявление успешно подано.",
+            attachments=[builder.as_markup()]
+        )
 
 
 @dp.message_callback()
 async def main_menu_handler(event: MessageCallback):
     payload = event.callback.payload
-    user_id = event.from_user.user_id
+    max_id = event.from_user.user_id
+    user_first_name = event.from_user.first_name
 
     await event.answer()
 
     if payload == "@applicant-admission":
         builder = InlineKeyboardBuilder()
-        builder.row(CallbackButton(text="📝 Подать заявление", payload="@applicant-application"))
-        builder.row(CallbackButton(text="📊 Проверить статус", payload="@applicant-check-status"))
+        builder.row(CallbackButton(text="📝 Подать заявление", payload="@act-applicant-application"))
+        builder.row(CallbackButton(text="📊 Проверить статус", payload="@act-applicant-check-status"))
         builder.row(CallbackButton(text="⬅️ Назад", payload="@all-main-menu"))
 
         await event.message.edit(
@@ -122,7 +321,7 @@ async def main_menu_handler(event: MessageCallback):
 
     elif payload == "@applicant-open-days":
         builder = InlineKeyboardBuilder()
-        builder.row(CallbackButton(text="📅 Записаться", payload="@applicant-sign-up-on-open-day"))
+        builder.row(CallbackButton(text="📅 Записаться", payload="@act-applicant-sign-up-on-open-day"))
         builder.row(CallbackButton(text="⬅️ Назад", payload="@all-main-menu"))
 
         await event.message.edit(
@@ -133,8 +332,8 @@ async def main_menu_handler(event: MessageCallback):
 
     elif payload == "@applicant-university-info":
         builder = InlineKeyboardBuilder()
-        builder.row(CallbackButton(text="🏫 О вузе", payload="@applicant-about-university"))
-        builder.row(CallbackButton(text="📊 Программы", payload="@applicant-studying-programmes"))
+        builder.row(CallbackButton(text="🏫 О вузе", payload="@act-applicant-about-university"))
+        builder.row(CallbackButton(text="📊 Программы", payload="@act-applicant-studying-programmes"))
         builder.row(CallbackButton(text="⬅️ Назад", payload="@all-main-menu"))
 
         await event.message.edit(
@@ -145,7 +344,7 @@ async def main_menu_handler(event: MessageCallback):
 
     elif payload == "@student-schedule":
         builder = InlineKeyboardBuilder()
-        builder.row(CallbackButton(text="📅 Текущее расписание", payload="@student-current-schedule"))
+        builder.row(CallbackButton(text="📅 Текущее расписание", payload="@act-student-current-schedule"))
         builder.row(CallbackButton(text="⬅️ Назад", payload="@all-main-menu"))
 
         await event.message.edit(
@@ -156,35 +355,20 @@ async def main_menu_handler(event: MessageCallback):
 
     elif payload == "@student-projects":
         builder = InlineKeyboardBuilder()
-        builder.row(CallbackButton(text="💡 Предложить проект", payload="@student-new-project"))
-        builder.row(CallbackButton(text="👥 Найти команду", payload="@student-find-team"))
-        builder.row(CallbackButton(text="📋 Доступные проекты", payload="@student-available-projects"))
-        builder.row(CallbackButton(text="⬅️ Назад", payload="@all-main-menu"))
+        builder.row(CallbackButton(text="📋 Доступные проекты", payload="@act-student-available-projects"))
+        builder.row(CallbackButton(text="⬅️ Назад", payload="@act-all-main-menu"))
 
         await event.message.edit(
             text="🎯 **Проектная деятельность**\n\n"
-                 "Предлагайте свои проекты, находите команду или присоединяйтесь к существующим проектам",
-            attachments=[builder.as_markup()]
-        )
-
-    elif payload == "@student-career":
-        builder = InlineKeyboardBuilder()
-        builder.row(CallbackButton(text="💼 Вакансии", payload="@student-vacancies"))
-        builder.row(CallbackButton(text="📝 Резюме", payload="@student-resume"))
-        builder.row(CallbackButton(text="⬅️ Назад", payload="@all-main-menu"))
-
-        await event.message.edit(
-            text="💼 **Карьера**\n\n"
-                 "Центр карьеры поможет вам найти работу или составить резюме",
+                 "Присоединяйтесь к существующим проектам",
             attachments=[builder.as_markup()]
         )
 
     elif payload == "@student-deanery":
         builder = InlineKeyboardBuilder()
-        builder.row(CallbackButton(text="📄 Заказать справку", payload="@student-order-inquiry"))
-        builder.row(CallbackButton(text="💳 Оплата обучения", payload="@student-studying-payment"))
-        builder.row(CallbackButton(text="📝 Академический отпуск", payload="@student-academic-vacation"))
-        builder.row(CallbackButton(text="🚗 Перевод", payload="@student-translation"))
+        builder.row(CallbackButton(text="💳 Оплата обучения", payload="@act-student-studying-payment"))
+        builder.row(CallbackButton(text="📝 Академический отпуск", payload="@act-student-academic-vacation"))
+        builder.row(CallbackButton(text="🚗 Перевод", payload="@act-student-translation"))
         builder.row(CallbackButton(text="⬅️ Назад", payload="@all-main-menu"))
 
         await event.message.edit(
@@ -194,47 +378,9 @@ async def main_menu_handler(event: MessageCallback):
             attachments=[builder.as_markup()]
         )
 
-    elif payload == "@student-dormitory":
-        builder = InlineKeyboardBuilder()
-        builder.row(CallbackButton(text="💳 Оплата проживания", payload="@student-living-payment"))
-        builder.row(CallbackButton(text="🛠️ Техподдержка", payload="@student-dormitory-support"))
-        builder.row(CallbackButton(text="👥 Гостевой пропуск", payload="@student-guest-pass"))
-        builder.row(CallbackButton(text="⬅️ Назад", payload="@all-main-menu"))
-
-        await event.message.edit(
-            text="🏠 **Общежитие**\n\n"
-                 "Управляйте всеми вопросами, связанными с проживанием в общежитии.",
-            attachments=[builder.as_markup()]
-        )
-
-    elif payload == "@student-events":
-        builder = InlineKeyboardBuilder()
-        builder.row(CallbackButton(text="📅 Календарь событий", payload="@student-events"))
-        builder.row(CallbackButton(text="🎫 Зарегистрироваться", payload="@student-sign-up-on-events"))
-        builder.row(CallbackButton(text="⬅️ Назад", payload="@all-main-menu"))
-
-        await event.message.edit(
-            text="🎪 **Мероприятия**\n\n"
-                 "Просматривайте календарь мероприятий и регистрируйтесь "
-                 "как участник или зритель.",
-            attachments=[builder.as_markup()]
-        )
-
-    elif payload == "@student-library":
-        builder = InlineKeyboardBuilder()
-        builder.row(CallbackButton(text="📚 Просмотр заказанных книг", payload="@student-books"))
-        builder.row(CallbackButton(text="⬅️ Назад", payload="@all-main-menu"))
-
-        await event.message.edit(
-            text="📚 **Библиотека**\n\n"
-                 "Заказывайте книги и получайте доступ к электронной библиотеке.",
-            attachments=[builder.as_markup()]
-        )
-
     elif payload == "@staff-business-trips":
         builder = InlineKeyboardBuilder()
-        builder.row(CallbackButton(text="📝 Оформить командировку", payload="@staff-business-trip"))
-        builder.row(CallbackButton(text="📊 Отчеты", payload="@staff-reports"))
+        builder.row(CallbackButton(text="📝 Оформить командировку", payload="@act-staff-business-trip"))
         builder.row(CallbackButton(text="⬅️ Назад", payload="@all-main-menu"))
 
         await event.message.edit(
@@ -246,7 +392,7 @@ async def main_menu_handler(event: MessageCallback):
 
     elif payload == "@staff-vacations":
         builder = InlineKeyboardBuilder()
-        builder.row(CallbackButton(text="🏖️ Оформить отпуск", payload="@staff-vacation"))
+        builder.row(CallbackButton(text="🏖️ Оформить отпуск", payload="@act-staff-vacation"))
         builder.row(CallbackButton(text="⬅️ Назад", payload="@all-main-menu"))
 
         await event.message.edit(
@@ -255,28 +401,17 @@ async def main_menu_handler(event: MessageCallback):
             attachments=[builder.as_markup()]
         )
 
-    elif payload == "@staff-office":
-        builder = InlineKeyboardBuilder()
-        builder.row(CallbackButton(text="📄 Справки", payload="@staff-order-inquiry"))
-        builder.row(CallbackButton(text="👥 Гостевой пропуск", payload="@staff-guest-pass"))
-        builder.row(CallbackButton(text="⬅️ Назад", payload="@all-main-menu"))
-
-        await event.message.edit(
-            text="🏢 **Офис**\n\n"
-                 "Заказывайте справки с места работы и оформляйте гостевые пропуска в офис.",
-            attachments=[builder.as_markup()]
-        )
-
     elif payload == "@all-main-menu":
-        menu = await get_main_menu(current_role)
-        role_text = {
-            UserRole.APPLICANT: "абитуриент",
-            UserRole.STUDENT: "студент",
-            UserRole.STAFF: "сотрудник"
-        }
+        request = requests.get(f"http://gutech-nelson.amvera.io/digital_university/api/v1/student/{max_id}/role")
+        role = str(request.json()['role'])
+        print(role)
+
+        roles = {'applicant': 'Абитуриент', 'student': 'Студент', 'professor': 'Сотрудник'}
+
+        menu = await get_main_menu(role)
 
         await event.message.edit(
-            text=f"👋 Добро пожаловать, {role_text[current_role]} {event.from_user.first_name}!\n\nВыберите нужный раздел:",
+            text=f"{roles[role]} {user_first_name}\n\nВыберите нужный раздел:",
             attachments=[menu.as_markup()]
         )
 
